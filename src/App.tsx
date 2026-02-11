@@ -219,26 +219,34 @@ const processActivities = (activities: Activity[]): DashboardData => {
 
 const processCSV = (text: string): DashboardData => {
     const lines = text.split('\n').filter(line => line.trim() !== '');
-    const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
-
-    const userIdx = headers.findIndex(h => h.includes('Usuário responsável'));
-    const typeIdx = headers.findIndex(h => h.includes('Tipo'));
-    const dateIdx = headers.findIndex(h => h.includes('Marcado como feito em'));
-
     const activities: Activity[] = [];
 
-    for (let i = 1; i < lines.length; i++) {
-        const row = lines[i].match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g);
-        if (!row) continue;
+    // Process each line (assuming format: type,"YYYY-MM-DD HH:MM:SS","name")
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line) continue;
 
-        const cleanRow = lines[i].split(',').map(cell => cell.trim().replace(/^"|"$/g, ''));
+        // Parse CSV with quoted fields
+        const regex = /^([^,]+),"([^"]+)","([^"]+)"$/;
+        const match = line.match(regex);
+        
+        if (!match || match.length < 4) {
+            console.warn(`[CSV] Skipping malformed line ${i}: ${line}`);
+            continue;
+        }
 
-        if (cleanRow[userIdx] && cleanRow[typeIdx] && cleanRow[dateIdx]) {
-            const date = new Date(cleanRow[dateIdx]);
-            if (isNaN(date.getTime())) continue;
+        const type = match[1].trim();
+        const dateTimeStr = match[2].trim(); // "2026-02-11 15:34:16"
+        const user = match[3].trim();
 
-            const user = cleanRow[userIdx];
-            const type = cleanRow[typeIdx];
+        try {
+            // Parse datetime: "2026-02-11 15:34:16"
+            const date = new Date(dateTimeStr);
+            if (isNaN(date.getTime())) {
+                console.warn(`[CSV] Invalid date on line ${i}: ${dateTimeStr}`);
+                continue;
+            }
+
             const hour = date.getHours();
             const dateStr = date.toISOString().split('T')[0]; // YYYY-MM-DD
 
@@ -250,9 +258,12 @@ const processCSV = (text: string): DashboardData => {
                 hour,
                 dateStr
             });
+        } catch (err) {
+            console.warn(`[CSV] Error parsing line ${i}:`, err);
         }
     }
 
+    console.log(`[CSV] Parsed ${activities.length} activities from ${lines.length} lines`);
     return processActivities(activities);
 };
 
