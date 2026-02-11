@@ -666,9 +666,12 @@ function App() {
     const handleAutoSaveToCloud = async (activitiesToSave: Activity[]) => {
         setSyncing(true);
         try {
+            console.log(`[SAVE] Total activities to save: ${activitiesToSave.length}`);
+            
             // Delete ALL existing activities using a valid filter (created_at > epoch)
             const { error: delErr } = await supabase.from('activities').delete().gt('created_at', '1900-01-01');
             if (delErr) throw delErr;
+            console.log('[SAVE] Old data deleted');
 
             // Insert new batch
             const rows = activitiesToSave.map(a => ({
@@ -678,12 +681,20 @@ function App() {
                 hour: a.hour
             }));
 
-            const batchSize = 100;
+            const batchSize = 500; // Increased from 100 to 500
+            let inserted = 0;
             for (let i = 0; i < rows.length; i += batchSize) {
                 const batch = rows.slice(i, i + batchSize);
+                console.log(`[SAVE] Inserting batch ${Math.floor(i / batchSize) + 1}: ${batch.length} rows`);
                 const { error } = await supabase.from('activities').insert(batch);
-                if (error) throw error;
+                if (error) {
+                    console.error('[SAVE] Insert error:', error);
+                    throw error;
+                }
+                inserted += batch.length;
+                console.log(`[SAVE] Inserted so far: ${inserted}`);
             }
+            console.log(`[SAVE] Successfully saved ${inserted} activities`);
         } catch (err: any) {
             console.error('Erro ao salvar automaticamente:', err);
             throw err;
