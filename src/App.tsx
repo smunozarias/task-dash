@@ -257,49 +257,6 @@ const processCSV = (text: string): DashboardData => {
     return processActivities(activities);
 };
 
-// --- GERADOR DE DADOS DE DEMO (SALES OPS) ---
-const generateDemoData = (): DashboardData => {
-    const users = ['Ana Silva (SDR)', 'Carlos Souza (SDR)', 'Beatriz Lima (Closer)', 'João Mendes (SDR)', 'Fernanda Costa (Closer)'];
-    const types = ['E-mail', 'Call', 'WhatsApp', 'LinkedIn'];
-    const baseDate = new Date();
-    const activities: Activity[] = [];
-
-    // Gerar 30 dias de dados
-    for (let d = 0; d < 30; d++) {
-        const currentDate = new Date(baseDate);
-        currentDate.setDate(baseDate.getDate() - d);
-        const dateStr = currentDate.toISOString().split('T')[0];
-
-        users.forEach(user => {
-            // Perfil de comportamento aleatório mas consistente
-            const isHighPerformer = user.includes('Ana') || user.includes('Fernanda');
-            const dailyVolume = isHighPerformer ? Math.floor(Math.random() * 40) + 40 : Math.floor(Math.random() * 30) + 10;
-
-            // Skip de fim de semana (simples)
-            if (currentDate.getDay() === 0 || currentDate.getDay() === 6) return;
-
-            // Skip aleatório (falta de consistência)
-            if (!isHighPerformer && Math.random() > 0.8) return;
-
-            for (let i = 0; i < dailyVolume; i++) {
-                const hour = Math.floor(Math.random() * 10) + 9; // 9h as 19h
-                const type = types[Math.floor(Math.random() * types.length)];
-
-                activities.push({
-                    id: Math.random().toString(),
-                    user,
-                    type,
-                    date: new Date(`${dateStr}T${hour.toString().padStart(2, '0')}:00:00`),
-                    hour,
-                    dateStr
-                });
-            }
-        });
-    }
-
-    return processActivities(activities);
-};
-
 // --- COMPONENTES VISUAIS ---
 
 const HeatmapGrid = ({ data, uniqueDates, threshold = 0 }: { data: { date: string; hour: number; value: number }[], uniqueDates: string[], threshold?: number }) => {
@@ -612,7 +569,7 @@ const KPICard = ({ title, value, icon: Icon, colorClass = "text-white" }: any) =
 );
 
 // --- TELA DE UPLOAD ---
-const UploadScreen = ({ onUpload, onDemo, onLoadCloud, latestPeriod }: { onUpload: (file: File) => void, onDemo: () => void, onLoadCloud: (period?: string) => void, latestPeriod?: string }) => {
+const UploadScreen = ({ onUpload, onLoadCloud, latestPeriod }: { onUpload: (file: File) => void, onLoadCloud: (period?: string) => void, latestPeriod?: string }) => {
     const [isDragging, setIsDragging] = useState(false);
 
     return (
@@ -690,32 +647,7 @@ function App() {
     const [savePeriod, setSavePeriod] = useState<string>('');
     const [latestPeriod, setLatestPeriod] = useState<string>('');
 
-    const handleSync = async () => {
-        if (!data) return;
-        setSyncing(true);
-        try {
-            const rows = data.rawActivities.map(a => ({
-                user_name: a.user,
-                type: a.type,
-                activity_date: a.date.toISOString(),
-                hour: a.hour
-            }));
-
-            const batchSize = 100;
-            for (let i = 0; i < rows.length; i += batchSize) {
-                const batch = rows.slice(i, i + batchSize);
-                const { error } = await supabase.from('activities').upsert(batch);
-                if (error) throw error;
-            }
-
-            alert('Dados sincronizados com Supabase!');
-        } catch (err: any) {
-            console.error(err);
-            alert('Erro ao sincronizar: ' + (err.message || 'Verifique as credenciais'));
-        } finally {
-            setSyncing(false);
-        }
-    };
+    // removed: handleSync - no longer used after refactor to period-based saving
 
     const fetchCloudPeriods = async () => {
         try {
@@ -831,18 +763,7 @@ function App() {
         }
     };
 
-
-    const handleDemo = () => {
-        setLoading(true);
-        setTimeout(() => {
-            const demoData = generateDemoData();
-            setData(demoData);
-            if (demoData.userMetrics.length > 0) setSelectedUser(demoData.userMetrics[0].name);
-            setLoading(false);
-        }, 800);
-    };
-
-    const handleFileUpload = (file: File, partial = false) => {
+    const handleFileUpload = (file: File) => {
         setLoading(true);
         const reader = new FileReader();
         reader.onload = (e) => {
@@ -934,7 +855,7 @@ function App() {
     }
 
     if (!data) {
-        return <UploadScreen onUpload={handleFileUpload} onDemo={handleDemo} onLoadCloud={handleLoadFromCloud} latestPeriod={latestPeriod} />;
+        return <UploadScreen onUpload={handleFileUpload} onLoadCloud={handleLoadFromCloud} latestPeriod={latestPeriod} />;
     }
 
     return (
@@ -997,7 +918,7 @@ function App() {
                             </select>
 
                             <button
-                                onClick={handleLoadFromCloud}
+                                onClick={() => handleLoadFromCloud(cloudPeriod)}
                                 disabled={loading}
                                 className={`px-3 py-2 rounded-lg text-sm font-semibold border border-[#6366f1] text-[#6366f1] hover:bg-[#6366f1]/10 transition-colors ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
                             >
