@@ -622,7 +622,7 @@ const UploadScreen = ({ onUpload, onDemo, onLoadCloud, latestPeriod }: { onUploa
                     <BarChart2 className="w-10 h-10 text-[#6366f1]" />
                 </div>
                 <h1 className="text-5xl font-black text-white mb-4 tracking-tight">
-                    Branddi<span className="text-[#6366f1]">Dash</span>
+                    Task<span className="text-[#6366f1]">Dash</span>
                 </h1>
                 <p className="text-gray-400 text-lg max-w-lg mx-auto leading-relaxed mb-6">
                     Inteligência de dados para times de alta performance.
