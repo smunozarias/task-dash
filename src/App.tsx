@@ -303,6 +303,15 @@ const processCSV = (text: string): DashboardData => {
     }
 
     console.log(`[CSV] Successfully parsed ${activities.length} activities from ${lines.length} lines`);
+    
+    // Log date range for debugging
+    if (activities.length > 0) {
+        const dates = activities.map(a => a.dateStr).sort();
+        console.log(`[CSV] Date range: ${dates[0]} to ${dates[dates.length - 1]}`);
+        const uniqueDates = Array.from(new Set(dates));
+        console.log(`[CSV] Unique dates (${uniqueDates.length}): ${uniqueDates.join(', ')}`);
+    }
+    
     return processActivities(activities);
 };
 
