@@ -13,7 +13,6 @@ import {
     Zap,
     TrendingUp,
     Target,
-    Cloud,
 } from 'lucide-react';
 import {
     BarChart,
@@ -40,7 +39,7 @@ import {
     PolarRadiusAxis
 } from 'recharts';
 
-// --- CONFIGURAÇÃO DA MARCA (Branddi) ---
+// --- CONFIGURAÇÃO DA MARCA (TaskDash) ---
 const BRAND_COLORS = {
     primary: '#6366f1', // Indigo Vibrante (Ação Principal)
     secondary: '#8b5cf6', // Roxo (Ação Secundária)
@@ -569,7 +568,7 @@ const KPICard = ({ title, value, icon: Icon, colorClass = "text-white" }: any) =
 );
 
 // --- TELA DE UPLOAD ---
-const UploadScreen = ({ onUpload, onLoadCloud, latestPeriod }: { onUpload: (file: File) => void, onLoadCloud: (period?: string) => void, latestPeriod?: string }) => {
+const UploadScreen = ({ onUpload }: { onUpload: (file: File) => void }) => {
     const [isDragging, setIsDragging] = useState(false);
 
     return (
@@ -581,29 +580,13 @@ const UploadScreen = ({ onUpload, onLoadCloud, latestPeriod }: { onUpload: (file
                 <h1 className="text-5xl font-black text-white mb-4 tracking-tight">
                     Task<span className="text-[#6366f1]">Dash</span>
                 </h1>
-                <p className="text-gray-400 text-lg max-w-lg mx-auto leading-relaxed mb-6">
+                <p className="text-gray-400 text-lg max-w-lg mx-auto leading-relaxed">
                     Inteligência de dados para times de alta performance.
                     Arraste sua planilha para começar.
                 </p>
-
-                <div className="flex items-center gap-4 justify-center">
-                    <div className="flex items-center gap-2">
-                        <input type="file" accept=".csv" onChange={(e) => e.target.files?.[0] && onUpload(e.target.files[0])} className="text-sm text-white" />
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                        <select value={latestPeriod || ''} onChange={() => {}} className="bg-[#0f172a] text-sm border border-gray-700/50 rounded px-2 py-1 text-white">
-                            {latestPeriod ? <option value={latestPeriod}>{latestPeriod}</option> : <option value="">Nenhum período salvo</option>}
-                        </select>
-                        <button onClick={() => onLoadCloud(latestPeriod)} className="px-6 py-2 bg-[#6366f1]/10 hover:bg-[#6366f1]/20 border border-[#6366f1]/20 rounded-full text-sm font-medium text-[#6366f1] transition-colors flex items-center gap-2">
-                            <Cloud className="w-4 h-4" />
-                            Carregar último período
-                        </button>
-                    </div>
-                </div>
             </div>
 
-                <div
+            <div
                 className={`relative w-full max-w-2xl group transition-all duration-300 ${isDragging ? 'scale-105' : ''}`}
                 onDragEnter={(e) => { e.preventDefault(); setIsDragging(true); }}
                 onDragLeave={(e) => { e.preventDefault(); setIsDragging(false); }}
@@ -642,124 +625,70 @@ function App() {
     const [loading, setLoading] = useState(false);
     const [syncing, setSyncing] = useState(false);
     const [heatmapThreshold, setHeatmapThreshold] = useState<number>(2);
-    const [availablePeriods, setAvailablePeriods] = useState<string[]>([]);
-    const [cloudPeriod, setCloudPeriod] = useState<string>('');
-    const [savePeriod, setSavePeriod] = useState<string>('');
-    const [latestPeriod, setLatestPeriod] = useState<string>('');
 
     // removed: handleSync - no longer used after refactor to period-based saving
 
-    const fetchCloudPeriods = async () => {
-        try {
-            const { data: rows, error } = await supabase.from('activities').select('period');
-            if (error) throw error;
-            const periods = Array.from(new Set((rows || []).map((r: any) => r.period).filter(Boolean))).filter((p:any) => p !== 'demo');
-            // sort descending (assumes YYYY-MM) and pick latest
-            const sorted = periods.slice().sort((a:any,b:any) => b.localeCompare(a));
-            setAvailablePeriods(sorted);
-            if (sorted.length > 0) {
-                if (!cloudPeriod) setCloudPeriod(sorted[0]);
-                setLatestPeriod(sorted[0]);
-            } else {
-                setLatestPeriod('');
-            }
-        } catch (err: any) {
-            console.error('Erro ao buscar períodos:', err.message || err);
-        }
-    };
+    // Auto-load data from cloud when component mounts
+    useEffect(() => {
+        const loadDataFromCloud = async () => {
+            setLoading(true);
+            try {
+                const { data: rows, error } = await supabase.from('activities').select('*');
+                if (error) throw error;
 
-    const handleSaveToCloud = async (periodLabel?: string) => {
-        if (!data) return alert('Sem dados para salvar.');
-        const label = periodLabel || savePeriod || (data.dateRange.start ? `${data.dateRange.start.getFullYear()}-${String(data.dateRange.start.getMonth() + 1).padStart(2, '0')}` : 'unknown');
-        if (!window.confirm(`Salvar ${data.totalActivities} atividades como período '${label}' na nuvem (sobrescrever dados existentes deste período)?`)) return;
+                if (rows && rows.length > 0) {
+                    const activities: Activity[] = rows.map((r: any, i: number) => ({
+                        id: r.id || i.toString(),
+                        user: r.user_name,
+                        type: r.type,
+                        date: new Date(r.activity_date),
+                        hour: r.hour,
+                        dateStr: new Date(r.activity_date).toISOString().split('T')[0]
+                    }));
+
+                    const processed = processActivities(activities);
+                    setData(processed);
+                    if (processed.userMetrics.length > 0) {
+                        setSelectedUser(processed.userMetrics[0].name);
+                    }
+                }
+            } catch (err: any) {
+                console.error('Erro ao carregar dados da nuvem:', err.message || err);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        loadDataFromCloud();
+    }, []);
+
+    // Auto-save data to cloud (replaces all existing data)
+    const handleAutoSaveToCloud = async (activitiesToSave: Activity[]) => {
         setSyncing(true);
         try {
-            // Delete existing rows for this period (overwrite semantics)
-            const { error: delErr } = await supabase.from('activities').delete().eq('period', label);
+            // Delete ALL existing activities (complete replace)
+            const { error: delErr } = await supabase.from('activities').delete().neq('id', '');
             if (delErr) throw delErr;
 
-            const rows = data.rawActivities.map(a => ({
+            // Insert new batch
+            const rows = activitiesToSave.map(a => ({
                 user_name: a.user,
                 type: a.type,
                 activity_date: a.date.toISOString(),
-                hour: a.hour,
-                period: label,
-                is_demo: false
+                hour: a.hour
             }));
 
-            // Insert in batches
             const batchSize = 100;
             for (let i = 0; i < rows.length; i += batchSize) {
                 const batch = rows.slice(i, i + batchSize);
                 const { error } = await supabase.from('activities').insert(batch);
                 if (error) throw error;
             }
-
-            alert('Dados salvos na nuvem com sucesso!');
-            await fetchCloudPeriods();
         } catch (err: any) {
-            console.error(err);
-            const msg = err?.message || String(err);
-            if (msg.includes('column') && msg.includes('does not exist')) {
-                alert('Erro ao salvar: parece que a coluna `period` não existe na tabela `activities`. Rode a migration supabase_add_columns.sql (veja o arquivo na raiz do projeto) para criar as colunas necessárias e tente novamente.');
-            } else {
-                alert('Erro ao salvar: ' + msg);
-            }
+            console.error('Erro ao salvar automaticamente:', err);
+            throw err;
         } finally {
             setSyncing(false);
-        }
-    };
-
-    const handleClearCloudSamples = async () => {
-        if (!window.confirm('Isto irá apagar registros sem `period` ou com `period = "demo"` na tabela `activities`. Continuar?')) return;
-        setSyncing(true);
-        try {
-            // Apaga apenas linhas onde period IS NULL OU period = 'demo'
-            const { error } = await supabase.from('activities').delete().or('period.is.null,period.eq.demo');
-            if (error) throw error;
-            alert('Registros sem período ou marcados como demo removidos da nuvem.');
-            await fetchCloudPeriods();
-        } catch (err: any) {
-            console.error(err);
-            alert('Erro ao limpar: ' + (err.message || err));
-        } finally {
-            setSyncing(false);
-        }
-    };
-
-    const handleLoadFromCloud = async (period?: string) => {
-        // default: load selected cloudPeriod if set, otherwise fetch all
-        setLoading(true);
-        try {
-            const targetPeriod = period ?? cloudPeriod;
-            let query = supabase.from('activities').select('*');
-            if (targetPeriod) query = query.eq('period', targetPeriod);
-            const { data: rows, error } = await query;
-            if (error) throw error;
-
-            if (rows && rows.length > 0) {
-                const activities: Activity[] = rows.map((r: any, i: number) => ({
-                    id: r.id || i.toString(),
-                    user: r.user_name,
-                    type: r.type,
-                    date: new Date(r.activity_date),
-                    hour: r.hour,
-                    dateStr: new Date(r.activity_date).toISOString().split('T')[0]
-                }));
-
-                const processed = processActivities(activities);
-                setData(processed);
-                if (processed.userMetrics.length > 0) {
-                    setSelectedUser(processed.userMetrics[0].name);
-                }
-            } else {
-                alert('Nenhum dado encontrado para o período selecionado na nuvem.');
-            }
-        } catch (err: any) {
-            console.error(err);
-            alert('Erro ao carregar da nuvem: ' + err.message);
-        } finally {
-            setLoading(false);
         }
     };
 
@@ -768,7 +697,6 @@ function App() {
         const reader = new FileReader();
         reader.onload = (e) => {
             try {
-                // Simulando delay para sensação de processamento "inteligente"
                 setTimeout(() => {
                     const processed = processCSV(e.target?.result as string);
                     setData(processed);
@@ -785,13 +713,6 @@ function App() {
         };
         reader.readAsText(file);
     };
-
-    // removed: save-upload helper (saving now handled from dashboard save control)
-
-    useEffect(() => {
-        // Preload available periods for the upload screen
-        fetchCloudPeriods();
-    }, []);
 
     // Memoização dos dados individuais
     const individualData = useMemo(() => {
@@ -855,7 +776,7 @@ function App() {
     }
 
     if (!data) {
-        return <UploadScreen onUpload={handleFileUpload} onLoadCloud={handleLoadFromCloud} latestPeriod={latestPeriod} />;
+        return <UploadScreen onUpload={handleFileUpload} />;
     }
 
     return (
@@ -868,7 +789,7 @@ function App() {
                             <BarChart2 className="w-6 h-6 text-white" />
                         </div>
                         <div>
-                            <h1 className="text-xl font-extrabold tracking-tight text-white">Branddi<span className="text-[#6366f1]">Dash</span></h1>
+                            <h1 className="text-xl font-extrabold tracking-tight text-white">Task<span className="text-[#6366f1]">Dash</span></h1>
                             <p className="text-xs text-gray-400 font-medium">Analytics & Performance</p>
                         </div>
                     </div>
@@ -904,43 +825,12 @@ function App() {
                     </div>
 
                     <div className="flex items-center gap-2">
-                        <div className="flex items-center gap-2">
-                            <select
-                                value={cloudPeriod}
-                                onChange={(e) => setCloudPeriod(e.target.value)}
-                                onFocus={() => fetchCloudPeriods()}
-                                className="bg-[#0f172a] text-sm border border-gray-700/50 rounded px-2 py-1 text-white"
-                            >
-                                <option value="">Todos períodos</option>
-                                {availablePeriods.map(p => (
-                                    <option key={p} value={p}>{p}</option>
-                                ))}
-                            </select>
-
-                            <button
-                                onClick={() => handleLoadFromCloud(cloudPeriod)}
-                                disabled={loading}
-                                className={`px-3 py-2 rounded-lg text-sm font-semibold border border-[#6366f1] text-[#6366f1] hover:bg-[#6366f1]/10 transition-colors ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
-                            >
-                                {loading ? 'Carregando...' : 'Carregar'}
-                            </button>
-
-                            {/* save controls moved to dashboard view per UX simplification */}
-
-                            <button
-                                onClick={handleClearCloudSamples}
-                                className="text-sm font-medium text-gray-400 hover:text-red-400 transition-colors px-3"
-                            >
-                                Limpar Nuvem
-                            </button>
-
-                            <button
-                                onClick={() => setData(null)}
-                                className="text-sm font-medium text-gray-400 hover:text-red-400 transition-colors px-4"
-                            >
-                                Sair
-                            </button>
-                        </div>
+                        <button
+                            onClick={() => setData(null)}
+                            className="text-sm font-medium text-gray-400 hover:text-red-400 transition-colors px-4"
+                        >
+                            Sair
+                        </button>
                     </div>
                 </div>
             </div>
@@ -960,28 +850,15 @@ function App() {
                             </div>
 
                             <div className="flex items-end gap-3">
-                                <select
-                                    value={savePeriod}
-                                    onChange={(e) => setSavePeriod(e.target.value)}
-                                    className="bg-[#0f172a] text-sm border border-gray-700/50 rounded px-2 py-1 text-white"
-                                >
-                                    <option value="">Novo mês...</option>
-                                    {availablePeriods.map(p => (
-                                        <option key={p} value={p}>{p}</option>
-                                    ))}
-                                </select>
-
-                                <input
-                                    placeholder="Período (YYYY-MM)"
-                                    value={savePeriod}
-                                    onChange={(e) => setSavePeriod(e.target.value)}
-                                    className="bg-[#0f172a] text-sm border border-gray-700/50 rounded px-2 py-1 text-white"
-                                />
-
                                 <button
-                                    onClick={() => handleSaveToCloud(savePeriod)}
+                                    onClick={() => {
+                                        if (!window.confirm(`Salvar ${data.totalActivities} atividades na nuvem (sobrescrever dados existentes)?`)) return;
+                                        handleAutoSaveToCloud(data.rawActivities)
+                                            .then(() => alert('Dados salvos na nuvem com sucesso!'))
+                                            .catch((err: any) => alert('Erro ao salvar: ' + err.message));
+                                    }}
                                     disabled={syncing}
-                                    className={`px-3 py-2 rounded-lg text-sm font-semibold border border-[#10b981] text-[#10b981] hover:bg-[#10b981]/10 transition-colors ${syncing ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                    className={`px-6 py-2 rounded-lg text-sm font-semibold bg-gradient-to-r from-[#10b981] to-[#059669] text-white hover:shadow-lg hover:shadow-[#10b981]/50 transition-all ${syncing ? 'opacity-50 cursor-not-allowed' : ''}`}
                                 >
                                     {syncing ? 'Salvando...' : 'Salvar Dados'}
                                 </button>
