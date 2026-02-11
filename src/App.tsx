@@ -666,8 +666,8 @@ function App() {
     const handleAutoSaveToCloud = async (activitiesToSave: Activity[]) => {
         setSyncing(true);
         try {
-            // Delete ALL existing activities (complete replace)
-            const { error: delErr } = await supabase.from('activities').delete().neq('id', '');
+            // Delete ALL existing activities using a valid filter (created_at > epoch)
+            const { error: delErr } = await supabase.from('activities').delete().gt('created_at', '1900-01-01');
             if (delErr) throw delErr;
 
             // Insert new batch
