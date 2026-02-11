@@ -181,7 +181,8 @@ const processActivities = (activities: Activity[]): DashboardData => {
         value: typeMap[key]
     })).sort((a, b) => b.value - a.value);
 
-    const uniqueDates = Array.from(uniqueDatesSet).sort();
+    // Sort dates numerically (YYYY-MM-DD format is sortable as string)
+    const uniqueDates = Array.from(uniqueDatesSet).sort((a, b) => a.localeCompare(b));
 
     // Preparar dados do Heatmap (Lista flat para renderização)
     const heatmapData: { date: string; hour: number; value: number }[] = [];
@@ -730,7 +731,7 @@ function App() {
                 hour: a.hour
             }));
 
-            const batchSize = 1000; // Increased to 1000 for larger datasets
+            const batchSize = 5000; // Increased to 5000 for larger datasets
             let inserted = 0;
             for (let i = 0; i < rows.length; i += batchSize) {
                 const batch = rows.slice(i, i + batchSize);
@@ -742,6 +743,11 @@ function App() {
                 }
                 inserted += batch.length;
                 console.log(`[SAVE] Inserted so far: ${inserted}`);
+                
+                // Add small delay between batches to avoid throttling
+                if (i + batchSize < rows.length) {
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                }
             }
             console.log(`[SAVE] Successfully saved ${inserted} activities`);
         } catch (err: any) {
