@@ -219,25 +219,63 @@ const processActivities = (activities: Activity[]): DashboardData => {
 
 const processCSV = (text: string): DashboardData => {
     const lines = text.split('\n').filter(line => line.trim() !== '');
+    
+    if (lines.length < 2) {
+        console.warn('[CSV] CSV file too short');
+        return processActivities([]);
+    }
+
+    // Parse header to find column indices
+    const headerLine = lines[0];
+    let typeIdx = -1, dateIdx = -1, userIdx = -1;
+    
+    // Parse header with quoted fields
+    const headerRegex = /"([^"]*)"/g;
+    let headerMatch;
+    let colIndex = 0;
+    while ((headerMatch = headerRegex.exec(headerLine)) !== null) {
+        const colName = headerMatch[1].trim();
+        if (colName.includes('Tipo')) typeIdx = colIndex;
+        else if (colName.includes('Marcado como feito em') || colName.includes('Data')) dateIdx = colIndex;
+        else if (colName.includes('Usuário responsável') || colName.includes('Usuario')) userIdx = colIndex;
+        colIndex++;
+    }
+
+    console.log(`[CSV] Column indices - type: ${typeIdx}, date: ${dateIdx}, user: ${userIdx}`);
+
+    if (typeIdx === -1 || dateIdx === -1 || userIdx === -1) {
+        console.error('[CSV] Could not find required columns in header');
+        return processActivities([]);
+    }
+
     const activities: Activity[] = [];
 
-    // Process each line (assuming format: type,"YYYY-MM-DD HH:MM:SS","name")
-    for (let i = 0; i < lines.length; i++) {
+    // Parse data rows
+    for (let i = 1; i < lines.length; i++) {
         const line = lines[i].trim();
         if (!line) continue;
 
-        // Parse CSV with quoted fields
-        const regex = /^([^,]+),"([^"]+)","([^"]+)"$/;
-        const match = line.match(regex);
-        
-        if (!match || match.length < 4) {
-            console.warn(`[CSV] Skipping malformed line ${i}: ${line}`);
+        // Extract quoted fields: "value1","value2","value3"
+        const fields: string[] = [];
+        const fieldRegex = /"([^"]*)"/g;
+        let fieldMatch;
+        while ((fieldMatch = fieldRegex.exec(line)) !== null) {
+            fields.push(fieldMatch[1]);
+        }
+
+        if (fields.length < Math.max(typeIdx, dateIdx, userIdx) + 1) {
+            console.warn(`[CSV] Skipping malformed line ${i}: insufficient fields`);
             continue;
         }
 
-        const type = match[1].trim();
-        const dateTimeStr = match[2].trim(); // "2026-02-11 15:34:16"
-        const user = match[3].trim();
+        const type = fields[typeIdx]?.trim();
+        const dateTimeStr = fields[dateIdx]?.trim();
+        const user = fields[userIdx]?.trim();
+
+        if (!type || !dateTimeStr || !user) {
+            console.warn(`[CSV] Skipping line ${i}: missing required fields`);
+            continue;
+        }
 
         try {
             // Parse datetime: "2026-02-11 15:34:16"
@@ -263,7 +301,7 @@ const processCSV = (text: string): DashboardData => {
         }
     }
 
-    console.log(`[CSV] Parsed ${activities.length} activities from ${lines.length} lines`);
+    console.log(`[CSV] Successfully parsed ${activities.length} activities from ${lines.length} lines`);
     return processActivities(activities);
 };
 
@@ -692,7 +730,7 @@ function App() {
                 hour: a.hour
             }));
 
-            const batchSize = 500; // Increased from 100 to 500
+            const batchSize = 1000; // Increased to 1000 for larger datasets
             let inserted = 0;
             for (let i = 0; i < rows.length; i += batchSize) {
                 const batch = rows.slice(i, i + batchSize);
