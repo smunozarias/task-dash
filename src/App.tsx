@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { supabase } from './lib/supabase';
 import {
     Upload,
@@ -302,13 +302,20 @@ const generateDemoData = (): DashboardData => {
 
 // --- COMPONENTES VISUAIS ---
 
-const HeatmapGrid = ({ data, uniqueDates }: { data: { date: string; hour: number; value: number }[], uniqueDates: string[] }) => {
-    const maxValue = Math.max(...data.map(d => d.value));
+const HeatmapGrid = ({ data, uniqueDates, threshold = 0 }: { data: { date: string; hour: number; value: number }[], uniqueDates: string[], threshold?: number }) => {
+    const cellMap = useMemo(() => {
+        const m = new Map<string, number>();
+        data.forEach(d => m.set(`${d.date}-${d.hour}`, d.value));
+        return m;
+    }, [data]);
+
+    const effectiveMax = Math.max(...Array.from(cellMap.values()).map(v => (v > threshold ? v : 0)), 1);
 
     const getColor = (value: number) => {
-        if (value === 0) return 'bg-gray-800/40';
+        const effective = value > threshold ? value : 0;
+        if (effective === 0) return 'bg-gray-800/40';
         // Gradiente Branddi (Indigo para Laranja/Quente)
-        const intensity = value / maxValue;
+        const intensity = effective / effectiveMax;
         if (intensity < 0.2) return 'bg-[#312e81]'; // Indigo muito escuro
         if (intensity < 0.4) return 'bg-[#4338ca]';
         if (intensity < 0.6) return 'bg-[#6366f1]'; // Primary
@@ -317,7 +324,7 @@ const HeatmapGrid = ({ data, uniqueDates }: { data: { date: string; hour: number
     };
 
     return (
-        <div className="bg-[#1e293b] border border-gray-700/50 p-6 rounded-2xl shadow-xl overflow-hidden">
+        <div className="bg-[#1e293b] border border-gray-700/50 p-6 rounded-2xl shadow-xl overflow-visible">
             <div className="flex justify-between items-center mb-6">
                 <h3 className="text-lg font-bold text-white flex items-center gap-2">
                     <Clock className="w-5 h-5 text-[#f97316]" />
@@ -354,22 +361,21 @@ const HeatmapGrid = ({ data, uniqueDates }: { data: { date: string; hour: number
                                         {formattedDate}
                                     </div>
                                     {HOURS.map(hour => {
-                                        const cell = data.find(d => d.date === dateStr && d.hour === hour);
-                                        const val = cell?.value || 0;
-                                        return (
-                                            <div
-                                                key={`${dateStr}-${hour}`}
-                                                className={`h-8 rounded-sm relative group cursor-pointer transition-all hover:scale-110 hover:z-10 ${getColor(val)}`}
-                                            >
-                                                {val > 0 && (
-                                                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block bg-gray-900 text-white text-xs px-3 py-2 rounded-lg border border-gray-700 shadow-2xl whitespace-nowrap z-50">
-                                                        <div className="font-bold">{val} atividades</div>
-                                                        <div className="text-gray-400 text-[10px]">{formattedDate} às {hour}:00</div>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        );
-                                    })}
+                                        const val = cellMap.get(`${dateStr}-${hour}`) || 0;
+                                                        return (
+                                                            <div
+                                                                key={`${dateStr}-${hour}`}
+                                                                className={`h-8 rounded-sm relative group cursor-pointer transition-all hover:scale-110 hover:z-10 ${getColor(val)}`}
+                                                            >
+                                                {val > threshold && (
+                                                                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block bg-gray-900 text-white text-xs px-3 py-2 rounded-lg border border-gray-700 shadow-2xl whitespace-nowrap z-50">
+                                                                        <div className="font-bold">{val} atividades</div>
+                                                                        <div className="text-gray-400 text-[10px]">{formattedDate} às {hour}:00</div>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    })}
                                 </div>
                             );
                         })}
@@ -606,7 +612,7 @@ const KPICard = ({ title, value, icon: Icon, colorClass = "text-white" }: any) =
 );
 
 // --- TELA DE UPLOAD ---
-const UploadScreen = ({ onUpload, onDemo, onLoadCloud }: { onUpload: (file: File) => void, onDemo: () => void, onLoadCloud: () => void }) => {
+const UploadScreen = ({ onUpload, onDemo, onLoadCloud, latestPeriod }: { onUpload: (file: File) => void, onDemo: () => void, onLoadCloud: (period?: string) => void, latestPeriod?: string }) => {
     const [isDragging, setIsDragging] = useState(false);
 
     return (
@@ -624,25 +630,23 @@ const UploadScreen = ({ onUpload, onDemo, onLoadCloud }: { onUpload: (file: File
                 </p>
 
                 <div className="flex items-center gap-4 justify-center">
-                    <button
-                        onClick={onDemo}
-                        className="px-6 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-full text-sm font-medium text-gray-300 transition-colors flex items-center gap-2"
-                    >
-                        <Zap className="w-4 h-4 text-[#f97316]" />
-                        Carregar Dados de Exemplo (Demo)
-                    </button>
+                    <div className="flex items-center gap-2">
+                        <input type="file" accept=".csv" onChange={(e) => e.target.files?.[0] && onUpload(e.target.files[0])} className="text-sm text-white" />
+                    </div>
 
-                    <button
-                        onClick={onLoadCloud}
-                        className="px-6 py-2 bg-[#6366f1]/10 hover:bg-[#6366f1]/20 border border-[#6366f1]/20 rounded-full text-sm font-medium text-[#6366f1] transition-colors flex items-center gap-2"
-                    >
-                        <Cloud className="w-4 h-4" />
-                        Carregar da Nuvem
-                    </button>
+                    <div className="flex items-center gap-2">
+                        <select value={latestPeriod || ''} onChange={() => {}} className="bg-[#0f172a] text-sm border border-gray-700/50 rounded px-2 py-1 text-white">
+                            {latestPeriod ? <option value={latestPeriod}>{latestPeriod}</option> : <option value="">Nenhum período salvo</option>}
+                        </select>
+                        <button onClick={() => onLoadCloud(latestPeriod)} className="px-6 py-2 bg-[#6366f1]/10 hover:bg-[#6366f1]/20 border border-[#6366f1]/20 rounded-full text-sm font-medium text-[#6366f1] transition-colors flex items-center gap-2">
+                            <Cloud className="w-4 h-4" />
+                            Carregar último período
+                        </button>
+                    </div>
                 </div>
             </div>
 
-            <div
+                <div
                 className={`relative w-full max-w-2xl group transition-all duration-300 ${isDragging ? 'scale-105' : ''}`}
                 onDragEnter={(e) => { e.preventDefault(); setIsDragging(true); }}
                 onDragLeave={(e) => { e.preventDefault(); setIsDragging(false); }}
@@ -680,6 +684,11 @@ function App() {
     const [selectedUser, setSelectedUser] = useState<string>('');
     const [loading, setLoading] = useState(false);
     const [syncing, setSyncing] = useState(false);
+    const [heatmapThreshold, setHeatmapThreshold] = useState<number>(2);
+    const [availablePeriods, setAvailablePeriods] = useState<string[]>([]);
+    const [cloudPeriod, setCloudPeriod] = useState<string>('');
+    const [savePeriod, setSavePeriod] = useState<string>('');
+    const [latestPeriod, setLatestPeriod] = useState<string>('');
 
     const handleSync = async () => {
         if (!data) return;
@@ -708,14 +717,95 @@ function App() {
         }
     };
 
-    const handleLoadFromCloud = async () => {
+    const fetchCloudPeriods = async () => {
+        try {
+            const { data: rows, error } = await supabase.from('activities').select('period');
+            if (error) throw error;
+            const periods = Array.from(new Set((rows || []).map((r: any) => r.period).filter(Boolean))).filter((p:any) => p !== 'demo');
+            // sort descending (assumes YYYY-MM) and pick latest
+            const sorted = periods.slice().sort((a:any,b:any) => b.localeCompare(a));
+            setAvailablePeriods(sorted);
+            if (sorted.length > 0) {
+                if (!cloudPeriod) setCloudPeriod(sorted[0]);
+                setLatestPeriod(sorted[0]);
+            } else {
+                setLatestPeriod('');
+            }
+        } catch (err: any) {
+            console.error('Erro ao buscar períodos:', err.message || err);
+        }
+    };
+
+    const handleSaveToCloud = async (periodLabel?: string) => {
+        if (!data) return alert('Sem dados para salvar.');
+        const label = periodLabel || savePeriod || (data.dateRange.start ? `${data.dateRange.start.getFullYear()}-${String(data.dateRange.start.getMonth() + 1).padStart(2, '0')}` : 'unknown');
+        if (!window.confirm(`Salvar ${data.totalActivities} atividades como período '${label}' na nuvem (sobrescrever dados existentes deste período)?`)) return;
+        setSyncing(true);
+        try {
+            // Delete existing rows for this period (overwrite semantics)
+            const { error: delErr } = await supabase.from('activities').delete().eq('period', label);
+            if (delErr) throw delErr;
+
+            const rows = data.rawActivities.map(a => ({
+                user_name: a.user,
+                type: a.type,
+                activity_date: a.date.toISOString(),
+                hour: a.hour,
+                period: label,
+                is_demo: false
+            }));
+
+            // Insert in batches
+            const batchSize = 100;
+            for (let i = 0; i < rows.length; i += batchSize) {
+                const batch = rows.slice(i, i + batchSize);
+                const { error } = await supabase.from('activities').insert(batch);
+                if (error) throw error;
+            }
+
+            alert('Dados salvos na nuvem com sucesso!');
+            await fetchCloudPeriods();
+        } catch (err: any) {
+            console.error(err);
+            const msg = err?.message || String(err);
+            if (msg.includes('column') && msg.includes('does not exist')) {
+                alert('Erro ao salvar: parece que a coluna `period` não existe na tabela `activities`. Rode a migration supabase_add_columns.sql (veja o arquivo na raiz do projeto) para criar as colunas necessárias e tente novamente.');
+            } else {
+                alert('Erro ao salvar: ' + msg);
+            }
+        } finally {
+            setSyncing(false);
+        }
+    };
+
+    const handleClearCloudSamples = async () => {
+        if (!window.confirm('Isto irá apagar registros sem `period` ou com `period = "demo"` na tabela `activities`. Continuar?')) return;
+        setSyncing(true);
+        try {
+            // Apaga apenas linhas onde period IS NULL OU period = 'demo'
+            const { error } = await supabase.from('activities').delete().or('period.is.null,period.eq.demo');
+            if (error) throw error;
+            alert('Registros sem período ou marcados como demo removidos da nuvem.');
+            await fetchCloudPeriods();
+        } catch (err: any) {
+            console.error(err);
+            alert('Erro ao limpar: ' + (err.message || err));
+        } finally {
+            setSyncing(false);
+        }
+    };
+
+    const handleLoadFromCloud = async (period?: string) => {
+        // default: load selected cloudPeriod if set, otherwise fetch all
         setLoading(true);
         try {
-            const { data: rows, error } = await supabase.from('activities').select('*');
+            const targetPeriod = period ?? cloudPeriod;
+            let query = supabase.from('activities').select('*');
+            if (targetPeriod) query = query.eq('period', targetPeriod);
+            const { data: rows, error } = await query;
             if (error) throw error;
 
             if (rows && rows.length > 0) {
-                // Map Supabase rows to Activity[]
                 const activities: Activity[] = rows.map((r: any, i: number) => ({
                     id: r.id || i.toString(),
                     user: r.user_name,
@@ -731,7 +821,7 @@ function App() {
                     setSelectedUser(processed.userMetrics[0].name);
                 }
             } else {
-                alert('Nenhum dado encontrado na nuvem.');
+                alert('Nenhum dado encontrado para o período selecionado na nuvem.');
             }
         } catch (err: any) {
             console.error(err);
@@ -752,7 +842,7 @@ function App() {
         }, 800);
     };
 
-    const handleFileUpload = (file: File) => {
+    const handleFileUpload = (file: File, partial = false) => {
         setLoading(true);
         const reader = new FileReader();
         reader.onload = (e) => {
@@ -774,6 +864,13 @@ function App() {
         };
         reader.readAsText(file);
     };
+
+    // removed: save-upload helper (saving now handled from dashboard save control)
+
+    useEffect(() => {
+        // Preload available periods for the upload screen
+        fetchCloudPeriods();
+    }, []);
 
     // Memoização dos dados individuais
     const individualData = useMemo(() => {
@@ -837,7 +934,7 @@ function App() {
     }
 
     if (!data) {
-        return <UploadScreen onUpload={handleFileUpload} onDemo={handleDemo} onLoadCloud={handleLoadFromCloud} />;
+        return <UploadScreen onUpload={handleFileUpload} onDemo={handleDemo} onLoadCloud={handleLoadFromCloud} latestPeriod={latestPeriod} />;
     }
 
     return (
@@ -886,19 +983,43 @@ function App() {
                     </div>
 
                     <div className="flex items-center gap-2">
-                        <button
-                            onClick={handleSync}
-                            disabled={syncing}
-                            className={`px-4 py-2 rounded-lg text-sm font-semibold border border-[#6366f1] text-[#6366f1] hover:bg-[#6366f1]/10 transition-colors flex items-center gap-2 ${syncing ? 'opacity-50 cursor-not-allowed' : ''}`}
-                        >
-                            {syncing ? 'Enviando...' : 'Sincronizar Cloud'}
-                        </button>
-                        <button
-                            onClick={() => setData(null)}
-                            className="text-sm font-medium text-gray-400 hover:text-red-400 transition-colors px-4"
-                        >
-                            Sair
-                        </button>
+                        <div className="flex items-center gap-2">
+                            <select
+                                value={cloudPeriod}
+                                onChange={(e) => setCloudPeriod(e.target.value)}
+                                onFocus={() => fetchCloudPeriods()}
+                                className="bg-[#0f172a] text-sm border border-gray-700/50 rounded px-2 py-1 text-white"
+                            >
+                                <option value="">Todos períodos</option>
+                                {availablePeriods.map(p => (
+                                    <option key={p} value={p}>{p}</option>
+                                ))}
+                            </select>
+
+                            <button
+                                onClick={handleLoadFromCloud}
+                                disabled={loading}
+                                className={`px-3 py-2 rounded-lg text-sm font-semibold border border-[#6366f1] text-[#6366f1] hover:bg-[#6366f1]/10 transition-colors ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            >
+                                {loading ? 'Carregando...' : 'Carregar'}
+                            </button>
+
+                            {/* save controls moved to dashboard view per UX simplification */}
+
+                            <button
+                                onClick={handleClearCloudSamples}
+                                className="text-sm font-medium text-gray-400 hover:text-red-400 transition-colors px-3"
+                            >
+                                Limpar Nuvem
+                            </button>
+
+                            <button
+                                onClick={() => setData(null)}
+                                className="text-sm font-medium text-gray-400 hover:text-red-400 transition-colors px-4"
+                            >
+                                Sair
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -915,6 +1036,34 @@ function App() {
                                 <p className="text-gray-400">
                                     Período: <span className="text-[#f97316] font-mono">{data.dateRange.start?.toLocaleDateString()}</span> até <span className="text-[#f97316] font-mono">{data.dateRange.end?.toLocaleDateString()}</span>
                                 </p>
+                            </div>
+
+                            <div className="flex items-end gap-3">
+                                <select
+                                    value={savePeriod}
+                                    onChange={(e) => setSavePeriod(e.target.value)}
+                                    className="bg-[#0f172a] text-sm border border-gray-700/50 rounded px-2 py-1 text-white"
+                                >
+                                    <option value="">Novo mês...</option>
+                                    {availablePeriods.map(p => (
+                                        <option key={p} value={p}>{p}</option>
+                                    ))}
+                                </select>
+
+                                <input
+                                    placeholder="Período (YYYY-MM)"
+                                    value={savePeriod}
+                                    onChange={(e) => setSavePeriod(e.target.value)}
+                                    className="bg-[#0f172a] text-sm border border-gray-700/50 rounded px-2 py-1 text-white"
+                                />
+
+                                <button
+                                    onClick={() => handleSaveToCloud(savePeriod)}
+                                    disabled={syncing}
+                                    className={`px-3 py-2 rounded-lg text-sm font-semibold border border-[#10b981] text-[#10b981] hover:bg-[#10b981]/10 transition-colors ${syncing ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                >
+                                    {syncing ? 'Salvando...' : 'Salvar Dados'}
+                                </button>
                             </div>
                         </div>
 
@@ -988,7 +1137,23 @@ function App() {
 
                         {/* Heatmap Section */}
                         <div className="space-y-4">
-                            <HeatmapGrid data={data.heatmapData} uniqueDates={data.uniqueDates} />
+                            <div className="flex justify-end items-center gap-3">
+                                <label className="text-sm text-gray-400">Filtro ruído:</label>
+                                <select
+                                    value={heatmapThreshold}
+                                    onChange={(e) => setHeatmapThreshold(Number(e.target.value))}
+                                    className="bg-[#0f172a] text-sm border border-gray-700/50 rounded px-2 py-1 text-white"
+                                >
+                                    <option value={0}>Mostrar tudo</option>
+                                    <option value={1}>Ocultar ≤1</option>
+                                    <option value={2}>Ocultar ≤2</option>
+                                    <option value={3}>Ocultar ≤3</option>
+                                    <option value={5}>Ocultar ≤5</option>
+                                </select>
+                                <div className="text-xs text-gray-500">Ocultar células com ≤ N atividades</div>
+                            </div>
+
+                            <HeatmapGrid data={data.heatmapData} uniqueDates={data.uniqueDates} threshold={heatmapThreshold} />
                         </div>
 
                         {/* Timeline */}
@@ -1089,7 +1254,21 @@ function App() {
                                 {individualData.metrics && <TimeInsightsCard metrics={individualData.metrics} />}
                             </div>
                             <div className="lg:col-span-3">
-                                <HeatmapGrid data={individualData.heatmap} uniqueDates={individualData.uniqueDates} />
+                                <div className="flex justify-end mb-2">
+                                    <label className="text-sm text-gray-400 mr-2">Filtro ruído:</label>
+                                    <select
+                                        value={heatmapThreshold}
+                                        onChange={(e) => setHeatmapThreshold(Number(e.target.value))}
+                                        className="bg-[#0f172a] text-sm border border-gray-700/50 rounded px-2 py-1 text-white"
+                                    >
+                                        <option value={0}>Mostrar tudo</option>
+                                        <option value={1}>Ocultar ≤1</option>
+                                        <option value={2}>Ocultar ≤2</option>
+                                        <option value={3}>Ocultar ≤3</option>
+                                        <option value={5}>Ocultar ≤5</option>
+                                    </select>
+                                </div>
+                                <HeatmapGrid data={individualData.heatmap} uniqueDates={individualData.uniqueDates} threshold={heatmapThreshold} />
                             </div>
                         </div>
 
