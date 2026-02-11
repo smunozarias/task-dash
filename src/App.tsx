@@ -315,6 +315,11 @@ const HeatmapGrid = ({ data, uniqueDates, threshold = 0 }: { data: { date: strin
         return m;
     }, [data]);
 
+    // Ensure dates are always sorted (YYYY-MM-DD format)
+    const sortedDates = useMemo(() => {
+        return [...uniqueDates].sort((a, b) => a.localeCompare(b));
+    }, [uniqueDates]);
+
     const effectiveMax = Math.max(...Array.from(cellMap.values()).map(v => (v > threshold ? v : 0)), 1);
 
     const getColor = (value: number) => {
@@ -357,7 +362,7 @@ const HeatmapGrid = ({ data, uniqueDates, threshold = 0 }: { data: { date: strin
 
                     {/* Grid Dias */}
                     <div className="space-y-1">
-                        {uniqueDates.map((dateStr) => {
+                        {sortedDates.map((dateStr) => {
                             const formattedDate = new Date(dateStr).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' });
                             const isWeekend = new Date(dateStr).getDay() === 0 || new Date(dateStr).getDay() === 6;
 
@@ -795,8 +800,11 @@ function App() {
             datesSet.add(a.dateStr);
         });
 
+        // Sort dates chronologically
+        const sortedDates = Array.from(datesSet).sort((a, b) => a.localeCompare(b));
+
         const heatmap: { date: string; hour: number; value: number }[] = [];
-        data.uniqueDates.forEach(date => {
+        sortedDates.forEach(date => {
             for (let h = 0; h < 24; h++) {
                 heatmap.push({
                     date: date,
@@ -820,7 +828,7 @@ function App() {
             metrics: data.userMetrics.find(u => u.name === selectedUser),
             heatmap,
             timeline,
-            uniqueDates: data.uniqueDates
+            uniqueDates: sortedDates
         };
     }, [data, selectedUser]);
 
